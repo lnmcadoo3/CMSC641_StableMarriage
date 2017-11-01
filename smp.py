@@ -228,6 +228,6 @@ def smp(length):
 
 def main():
     #print(generate_instance(5))
-    smp(750)
+    smp(850)
 
 main()
