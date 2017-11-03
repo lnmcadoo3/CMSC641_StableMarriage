@@ -21,8 +21,8 @@ from random import shuffle
 
 #The number of strategies that we have
 NUM_STRATEGIES = 3
-#The default value of the "top N" strategy
-DEFAULT_TOP_N = 10
+#Number of metrics that we have
+NUM_METRICS = 7
 
 # This function generates a random stable marriage problem with n 
 #   members of each set
@@ -174,12 +174,12 @@ def check_stability(set_a, set_b, a_prefs, b_prefs):
     return True
 
 # This should calculate the values of our chosen metrics
-def evaulate_matching(set_a, set_b, a_prefs, b_prefs):
+def evaluate_matching(set_a, set_b, a_prefs, b_prefs):
 
     #Maybe do some precomputation if this gets really really slow
 
     #Values of metrics
-    metrics = [0]*7
+    metrics = [0]*NUM_METRICS
     n = len(set_a.keys())
 
     #First number is the total number of pairs that would "cheat" with each other
@@ -207,27 +207,70 @@ def evaulate_matching(set_a, set_b, a_prefs, b_prefs):
     #Fifth number is the average "distance" for the B set
     metrics[4] = round(sum([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys()]) / n, 3)
 
-    #Sixth number is the max distance for the A set
-    metrics[5] = max([safe_index(a_prefs[a], set_a[a]) for a in set_a.keys()])
+    #Sixth number is the max distance for the A set, not including the unmatched people
+    #   (which would make this length)
+    metrics[5] = max([safe_index(a_prefs[a], set_a[a]) for a in set_a.keys() if(set_a[a] != None)])
 
     #Seventh number is the max distance for the B set
-    metrics[6] = max([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys()])
+    metrics[6] = max([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys() if(set_b[b] != None)])
 
     #Other metrics go here
 
     return metrics
 
-def smp(length):
-    a_prefs, b_prefs = generate_instance(length)
+def smp(length, iters = 1):
 
-    for strategy in range(NUM_STRATEGIES):
-        set_a, set_b = get_matching(a_prefs, b_prefs, strategy, length/20)
-        #print(set_a, set_b)
-        print(evaulate_matching(set_a, set_b, a_prefs, b_prefs))
+    #We should come up with good short names for these
+    strategies = [
+        "GS",
+        "Best you see at first",
+        "TopN"
+    ]
+
+    #Percentiles for Top N strategies (strictly it's Top N %)
+    percentiles = [1, 5, 10, 20, 25, 33, 50, 75]
+
+    #This looks bad, but is hopefully dynamic enough to not randomly break
+    #Essentially we want to store measurements of a run, which is identified
+    #   by the strategy, and a single parameter (which is 0 and doesn't matter)
+    #   for all but the TopN. We will make these tuples keys in the dictionary
+    keys = list(zip(strategies[:-1], [0]*(NUM_STRATEGIES-1)))
+    keys += list(zip([strategies[-1]]*len(percentiles), percentiles))
+
+    keys = sorted(keys)
+
+    inputs = []
+
+    for i in range(iters):
+        inputs.append(generate_instance(length))
+
+    measurements = dict(zip(keys, [[0]*NUM_METRICS]*len(keys)))
+
+    
+    for (k,p) in keys:
+        strategy = strategies.index(k)
+        for inp in inputs:
+            a_prefs, b_prefs = inp
+            #print(strategy, p)
+            set_a, set_b = get_matching(a_prefs, b_prefs, strategy, length*p/100)
+            meas = evaluate_matching(set_a, set_b, a_prefs, b_prefs)
+            temp = measurements[(k,p)]
+            #print(temp)
+            measurements[(k,p)] = [round(x+(y/iters), 3) for (x,y) in zip(temp, meas)]
+        #Print this out
+        if(p == 0):
+            print(k + ":")
+        else:
+            print(k + str(p) + ":")
+        print("\t", str(measurements[(k,p)]))
+
 
 
 def main():
     #print(generate_instance(5))
-    smp(850)
+    N = 1000
+    iters = 30
+    print(N, iters)
+    smp(N, iters)
 
 main()
