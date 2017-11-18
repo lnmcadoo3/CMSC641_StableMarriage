@@ -218,7 +218,7 @@ def evaluate_matching(set_a, set_b, a_prefs, b_prefs):
 
     return metrics
 
-def smp(length, iters = 1):
+def smp(length, iters = 1, whichstrat=None, evaluate=True):
 
     #We should come up with good short names for these
     strategies = [
@@ -249,20 +249,25 @@ def smp(length, iters = 1):
     
     for (k,p) in keys:
         strategy = strategies.index(k)
+        if whichstrat is not None and strategy != whichstrat:
+            continue
         for inp in inputs:
             a_prefs, b_prefs = inp
             #print(strategy, p)
             set_a, set_b = get_matching(a_prefs, b_prefs, strategy, length*p/100)
-            meas = evaluate_matching(set_a, set_b, a_prefs, b_prefs)
-            temp = measurements[(k,p)]
-            #print(temp)
-            measurements[(k,p)] = [round(x+(y/iters), 3) for (x,y) in zip(temp, meas)]
-        #Print this out
-        if(p == 0):
-            print(k + ":")
-        else:
-            print(k + str(p) + ":")
-        print("\t", str(measurements[(k,p)]))
+            if evaluate:
+                meas = evaluate_matching(set_a, set_b, a_prefs, b_prefs)
+                temp = measurements[(k,p)]
+                #print(temp)
+                measurements[(k,p)] = [round(x+(y/iters), 3) for (x,y) in zip(temp, meas)]
+
+        if evaluate:
+            #Print this out
+            if(p == 0):
+                print(k + ":")
+            else:
+                print(k + str(p) + ":")
+            print("\t", str(measurements[(k,p)]))
 
 
 
@@ -273,4 +278,5 @@ def main():
     print(N, iters)
     smp(N, iters)
 
-main()
+if  __name__ == "main":
+    main()
