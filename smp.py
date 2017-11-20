@@ -14,15 +14,17 @@
 #   https://stackoverflow.com/questions/18296755/python-max-function-using-key-and-lambda-expression
 #   https://docs.python.org/3/library/functions.html
 
-# We need to cite the paper mentioned here:
-#   http://pmneila.github.io/PyMaxflow/maxflow.html
-
 from random import shuffle
+from math import log
 
 #The number of strategies that we have
-NUM_STRATEGIES = 3
+NUM_STRATEGIES = 4
 #Number of metrics that we have
-NUM_METRICS = 7
+NUM_METRICS = 6
+
+
+
+PRECISION = 4
 
 # This function generates a random stable marriage problem with n 
 #   members of each set
@@ -125,11 +127,43 @@ def process_proposals(proposals, b_prefs, set_a, set_b, strategy, param):
                     set_a[best_a] = b
                     set_b[b] = best_a
 
+    #Accept best in top f(n, param, num_props_received_before_this)
+    #   f 
+    elif(strategy == 3):
+        for b in set_b.keys():
+            if(set_b[b] == None and proposals[b].keys()):
+                i = max(proposals[b].keys())
+                best_a = min(proposals[b][i], key = lambda x: b_prefs[b].index(x))
+                threshold = desperation_count(len(b_prefs), param, sum([len(proposals[b][x]) for x in range(i) if x in proposals[b].keys()]))
+                #print(threshold)
+                if(b_prefs[b].index(best_a) < threshold):
+                    set_a[best_a] = b
+                    set_b[b] = best_a
+
 
 
     #Other strategies go here
 
     return set_a, set_b
+
+# All of these functions have the property that they go through (0,1) and (n,n)
+#   This is a measure of the distance away from the top match they are willing to go
+#   (as a function of how many proposals they have received)
+def desperation_count(n, param, num_props):
+    #print(n, param, num_props)
+    #Linear function
+    if(param == 0):
+        return n/(n-1)*num_props + 1
+    #Quadratic function
+    elif(param == 1):
+        return 1/n*(num_props**2) + 1
+    #Exponential function
+    elif(param == 2):
+        return n**(num_props/n)
+    #Logarithmic function
+    elif(param == 3):
+        return (n-1)/log(n+1)*log(num_props+1) + 1
+
 
 # This is a safety wrapper for the index() method of lists, so that we don't have
 #   to rewrite too much code to account for not everyone being matched
@@ -178,6 +212,8 @@ def evaluate_matching(set_a, set_b, a_prefs, b_prefs):
 
     #Maybe do some precomputation if this gets really really slow
 
+    #print(set_a, set_b)
+
     #Values of metrics
     metrics = [0]*NUM_METRICS
     n = len(set_a.keys())
@@ -190,29 +226,26 @@ def evaluate_matching(set_a, set_b, a_prefs, b_prefs):
             for i in range(index):
                 b = a_prefs[a][i]
                 if(set_b[b] == None or b_prefs[b].index(a) < b_prefs[b].index(set_b[b])):
-                    metrics[0] += 1
+                    metrics[0] += 1.0
+        #This needs additional normalization
+        metrics[0] = metrics[0]/(n)
 
-    #Second number is the maximum number of cheating pairs that we could have at a time
-    #   (assuming that if any given a will only cheat on their partner with one b)
-    #   (this we frame as a maxflow problem)
-    #TODO: Actually do this
+    #Second number is number of a's (or, equivalently, b's) that have no match
+    metrics[1] = sum([1 for a in set_a.keys() if set_a[a] == None])
 
-    #Third number is number of a's (or, equivalently, b's) that have no match
-    metrics[2] = sum([1 for a in set_a.keys() if set_a[a] == None])
-
-    #Fourth number is the average "distance" of a match (how far down the preference 
+    #Third number is the average "distance" of a match (how far down the preference 
     #   list your partner is) for the A set
-    metrics[3] = round(sum([safe_index(a_prefs[a], set_a[a]) for a in set_a.keys()]) / n, 3)
+    metrics[2] = sum([safe_index(a_prefs[a], set_a[a]) for a in set_a.keys()]) / n
 
-    #Fifth number is the average "distance" for the B set
-    metrics[4] = round(sum([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys()]) / n, 3)
+    #Fourth number is the average "distance" for the B set
+    metrics[3] = sum([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys()]) / n
 
-    #Sixth number is the max distance for the A set, not including the unmatched people
+    #Fifth number is the max distance for the A set, not including the unmatched people
     #   (which would make this length)
-    metrics[5] = max([safe_index(a_prefs[a], set_a[a]) for a in set_a.keys() if(set_a[a] != None)])
+    metrics[4] = max([safe_index(a_prefs[a], set_a[a]) for a in set_a.keys() if(set_a[a] != None)])
 
-    #Seventh number is the max distance for the B set
-    metrics[6] = max([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys() if(set_b[b] != None)])
+    #Sixth number is the max distance for the B set
+    metrics[5] = max([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys() if(set_b[b] != None)])
 
     #Other metrics go here
 
@@ -224,9 +257,12 @@ def smp(length, iters = 1, whichstrat=None, evaluate=True):
     strategies = [
         "GS",
         "Best you see at first",
-        "TopN"
+        "TopN",
+        "Increasingly desperate"
     ]
 
+    #
+    desperate_flags = 4
     #Percentiles for Top N strategies (strictly it's Top N %)
     percentiles = [1, 5, 10, 20, 25, 33, 50, 75]
 
@@ -234,8 +270,9 @@ def smp(length, iters = 1, whichstrat=None, evaluate=True):
     #Essentially we want to store measurements of a run, which is identified
     #   by the strategy, and a single parameter (which is 0 and doesn't matter)
     #   for all but the TopN. We will make these tuples keys in the dictionary
-    keys = list(zip(strategies[:-1], [0]*(NUM_STRATEGIES-1)))
-    keys += list(zip([strategies[-1]]*len(percentiles), percentiles))
+    keys = list(zip(strategies[:-2], [0]*(NUM_STRATEGIES-2)))
+    keys += list(zip([strategies[-2]]*len(percentiles), percentiles))
+    keys += list(zip([strategies[-1]]*desperate_flags, range(desperate_flags)))
 
     keys = sorted(keys)
 
@@ -273,8 +310,8 @@ def smp(length, iters = 1, whichstrat=None, evaluate=True):
 
 def main():
     #print(generate_instance(5))
-    N = 1000
-    iters = 30
+    N = 756
+    iters = 4
     print(N, iters)
     smp(N, iters)
 
