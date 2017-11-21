@@ -14,8 +14,9 @@
 #   https://stackoverflow.com/questions/18296755/python-max-function-using-key-and-lambda-expression
 #   https://docs.python.org/3/library/functions.html
 
-from random import shuffle
+import random
 from math import log
+import timeit
 
 #The number of strategies that we have
 NUM_STRATEGIES = 4
@@ -29,10 +30,11 @@ PRECISION = 4
 # This function generates a random stable marriage problem with n 
 #   members of each set
 #TODO: Have this parameterized by a seed as well, to replicate the run
-def generate_instance(n):
+def generate_instance(n, seed = 1234):
     prefs = [list(range(n)) for i in range(2*n)]
+    rand = random.Random(seed)
     for x in prefs:
-        shuffle(x)
+        rand.shuffle(x)
     return (prefs[0:n], prefs[n:])
 
 def get_matching(a_prefs, b_prefs, strategy, param):
@@ -128,14 +130,13 @@ def process_proposals(proposals, b_prefs, set_a, set_b, strategy, param):
                     set_b[b] = best_a
 
     #Accept best in top f(n, param, num_props_received_before_this)
-    #   f 
     elif(strategy == 3):
         for b in set_b.keys():
             if(set_b[b] == None and proposals[b].keys()):
                 i = max(proposals[b].keys())
                 best_a = min(proposals[b][i], key = lambda x: b_prefs[b].index(x))
                 threshold = desperation_count(len(b_prefs), param, sum([len(proposals[b][x]) for x in range(i) if x in proposals[b].keys()]))
-                #print(threshold)
+                #print(threshold, param)
                 if(b_prefs[b].index(best_a) < threshold):
                     set_a[best_a] = b
                     set_b[b] = best_a
@@ -218,7 +219,10 @@ def evaluate_matching(set_a, set_b, a_prefs, b_prefs):
     metrics = [0]*NUM_METRICS
     n = len(set_a.keys())
 
-    #First number is the total number of pairs that would "cheat" with each other
+    #First number is number of a's (or, equivalently, b's) that have no match
+    metrics[0] = sum([1 for a in set_a.keys() if set_a[a] == None])
+
+    #Second number is the total number of pairs that would "cheat" with each other
     #   (intuitively, if a1 is matched with b3, but prefers b1 or b2, this will be 2)
     if(not check_stability(set_a, set_b, a_prefs, b_prefs)):
         for a in set_a:
@@ -226,19 +230,16 @@ def evaluate_matching(set_a, set_b, a_prefs, b_prefs):
             for i in range(index):
                 b = a_prefs[a][i]
                 if(set_b[b] == None or b_prefs[b].index(a) < b_prefs[b].index(set_b[b])):
-                    metrics[0] += 1.0
+                    metrics[1] += 1.0
         #This needs additional normalization
-        metrics[0] = metrics[0]/(n)
-
-    #Second number is number of a's (or, equivalently, b's) that have no match
-    metrics[1] = sum([1 for a in set_a.keys() if set_a[a] == None])
+        metrics[1] = metrics[1]/(n)#*n)
 
     #Third number is the average "distance" of a match (how far down the preference 
     #   list your partner is) for the A set
-    metrics[2] = sum([safe_index(a_prefs[a], set_a[a]) for a in set_a.keys()]) / n
+    metrics[2] = sum([safe_index(a_prefs[a], set_a[a]) for a in set_a.keys()]) / (n)
 
     #Fourth number is the average "distance" for the B set
-    metrics[3] = sum([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys()]) / n
+    metrics[3] = sum([safe_index(b_prefs[b], set_b[b]) for b in set_b.keys()]) / (n)
 
     #Fifth number is the max distance for the A set, not including the unmatched people
     #   (which would make this length)
@@ -251,7 +252,7 @@ def evaluate_matching(set_a, set_b, a_prefs, b_prefs):
 
     return metrics
 
-def smp(length, iters = 1, whichstrat=None, evaluate=True):
+def smp(length, iters = 1, time_iters = 1):
 
     #We should come up with good short names for these
     strategies = [
@@ -281,39 +282,71 @@ def smp(length, iters = 1, whichstrat=None, evaluate=True):
     for i in range(iters):
         inputs.append(generate_instance(length))
 
-    measurements = dict(zip(keys, [[0]*NUM_METRICS]*len(keys)))
+    measurements = dict(zip(keys, [[0]*(NUM_METRICS+1)]*len(keys)))
 
     
     for (k,p) in keys:
         strategy = strategies.index(k)
-        if whichstrat is not None and strategy != whichstrat:
-            continue
         for inp in inputs:
             a_prefs, b_prefs = inp
-            #print(strategy, p)
-            set_a, set_b = get_matching(a_prefs, b_prefs, strategy, length*p/100)
-            if evaluate:
-                meas = evaluate_matching(set_a, set_b, a_prefs, b_prefs)
-                temp = measurements[(k,p)]
-                #print(temp)
-                measurements[(k,p)] = [round(x+(y/iters), 3) for (x,y) in zip(temp, meas)]
+            param = p
+            if(strategy == 2):
+                param = length*p/100
 
-        if evaluate:
-            #Print this out
-            if(p == 0):
-                print(k + ":")
-            else:
-                print(k + str(p) + ":")
-            print("\t", str(measurements[(k,p)]))
+            # This looks clunky, but it repeats the computation some number of times
+            #   Unfortunately, that destroys the result, so we run it again
+            setup = "from __main__ import get_matching\na_prefs, b_prefs = %s, %s"% inp
+            times = timeit.repeat("get_matching(a_prefs, b_prefs, %d, %d)"%(strategy, param), setup=setup, repeat=time_iters, number=1)
+            #print("TIME", min(times))
+
+            set_a, set_b = get_matching(a_prefs, b_prefs, strategy, param)
+
+            #append time to the measurements list
+            meas = evaluate_matching(set_a, set_b, a_prefs, b_prefs)
+            meas.append(min(times))
+            temp = measurements[(k,p)]
+            #print(temp)
+            measurements[(k,p)] = [x+y for (x,y) in zip(temp, meas)]
+
+        # Average and normalize
+        temp_meas = measurements[(k,p)]
+        measurements[(k,p)] = [round(x/(iters*length), PRECISION) for x in temp_meas[:-1]] + [round(temp_meas[-1]/iters, PRECISION)]
+
+        if(p == 0):
+            print(k + ":")
+        else:
+            print(k + str(p) + ":")
+        print("\t", str(measurements[(k,p)]))
+
+    return measurements
 
 
 
 def main():
     #print(generate_instance(5))
-    N = 756
-    iters = 4
-    print(N, iters)
-    smp(N, iters)
+    data = {}
+    first_time = True
 
-if  __name__ == "main":
+    #Run on sizes of up to 2048
+    Ns = [2**i for i in range(4, 12)]
+    Is = [30 for i in range(4,12)]
+    N = 512
+    iters = 10
+
+    # Iterate this lots of times
+    #for (N, iters) in zip(Ns, Is):
+    print(N, iters)
+    vals = smp(N, iters)
+    for k in vals:
+        if(not (k in data)):
+            data[k] = {}
+        data[k][N] = vals[k]
+
+    keys = sorted(data.keys())
+
+    for k in keys:
+        for n in data[k]:
+            print(n, k, "\t", data[k][n])
+
+if  __name__ == "__main__":
     main()
