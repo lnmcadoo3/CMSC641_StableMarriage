@@ -72,7 +72,10 @@ def get_matching(a_prefs, b_prefs, strategy, param):
             #Increment the next to propose to
             proposed[a] += 1
 
-        process_proposals(proposals, b_prefs, set_a, set_b, strategy, param)
+        if strategy == 4:
+            process_proposals(proposals, b_prefs, set_a, set_b, strategy, i)
+        else:
+            process_proposals(proposals, b_prefs, set_a, set_b, strategy, param)
 
         #Increase round number
         i += 1
@@ -280,8 +283,9 @@ def smp(length, iters = 1, time_iters = 1):
     #Essentially we want to store measurements of a run, which is identified
     #   by the strategy, and a single parameter (which is 0 and doesn't matter)
     #   for all but the TopN. We will make these tuples keys in the dictionary
-    keys = list(zip(strategies[:-2], [0]*(NUM_STRATEGIES-2)))
-    keys += list(zip([strategies[-2]]*len(percentiles), percentiles))
+    keys = list(zip(strategies[:-3], [0]*(NUM_STRATEGIES-3)))
+    keys += list(zip([strategies[-3]]*len(percentiles), percentiles))
+    keys += list(zip([strategies[-2]]*desperate_flags, range(desperate_flags)))
     keys += list(zip([strategies[-1]]*desperate_flags, range(desperate_flags)))
 
     keys = sorted(keys)
