@@ -72,10 +72,7 @@ def get_matching(a_prefs, b_prefs, strategy, param):
             #Increment the next to propose to
             proposed[a] += 1
 
-        if strategy == 4:
-            process_proposals(proposals, b_prefs, set_a, set_b, strategy, i)
-        else:
-            process_proposals(proposals, b_prefs, set_a, set_b, strategy, param)
+        process_proposals(proposals, b_prefs, set_a, set_b, strategy, param)
 
         #Increase round number
         i += 1
@@ -152,7 +149,7 @@ def process_proposals(proposals, b_prefs, set_a, set_b, strategy, param):
             if(set_b[b] == None and proposals[b].keys()):
                 i = max(proposals[b].keys())
                 best_a = min(proposals[b][i], key = lambda x: b_prefs[b].index(x))
-                threshold = desperation_count(len(b_prefs), param, sum([len(proposals[b][x]) for x in range(i) if x in proposals[b].keys()]))
+                threshold = desperation_count(len(b_prefs), param, i)
                 if(b_prefs[b].index(best_a) < threshold):
                     set_a[best_a] = b
                     set_b[b] = best_a
@@ -271,7 +268,7 @@ def smp(length, iters = 1, time_iters = 1):
         "GS",
         "BF",
         "TN",
-        "ID",
+        "IDP",
         "IDR"
     ]
 
@@ -308,7 +305,7 @@ def smp(length, iters = 1, time_iters = 1):
             # This looks clunky, but it repeats the computation some number of times
             #   Unfortunately, that destroys the result, so we run it again
             time = min(timeit.repeat("get_matching(a_prefs, b_prefs, %d, %d)"%(strategy, param), setup=setup, repeat=time_iters, number=1))
-            print("Iteration %d Strategy %s started"%(i, (k+str(p))))
+            #print("Iteration %d Strategy %s started"%(i, (k+str(p))))
 
             set_a, set_b = get_matching(inp[0], inp[1], strategy, param)
 
@@ -318,7 +315,7 @@ def smp(length, iters = 1, time_iters = 1):
             temp = measurements[(k,p)]
 
             measurements[(k,p)] = [x+y for (x,y) in zip(temp, meas)]
-            print("Iteration %d Strategy %s finished in %.3f"%(i, (k+str(p)), time))
+            #print("Iteration %d Strategy %s finished in %.3f"%(i, (k+str(p)), time))
         print("Iteration %d finished"%i)
 
     for (k,p) in keys:            
@@ -345,7 +342,7 @@ def main():
     #Run on sizes of up to 2048
     Ns = [2**i for i in range(4, 12)]
     Is = [30 for i in range(4,12)]
-    N = 1024
+    N = 256
     iters = 5
 
     # Iterate this lots of times
