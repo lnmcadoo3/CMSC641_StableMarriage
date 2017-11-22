@@ -77,6 +77,8 @@ def get_matching(a_prefs, b_prefs, strategy, param):
         #Increase round number
         i += 1
 
+        #print("ROUND", i)
+
         #Recreate the free array
         free_a = [a for a in set_a.keys() if ((set_a[a] == None) and proposed[a] < length)]
 
@@ -257,12 +259,11 @@ def smp(length, iters = 1, time_iters = 1):
     #We should come up with good short names for these
     strategies = [
         "GS",
-        "Best you see at first",
-        "TopN",
-        "Increasingly desperate"
+        "BF",
+        "TN",
+        "ID"
     ]
 
-    #
     desperate_flags = 4
     #Percentiles for Top N strategies (strictly it's Top N %)
     percentiles = [1, 5, 10, 20, 25, 33, 50, 75]
@@ -277,37 +278,38 @@ def smp(length, iters = 1, time_iters = 1):
 
     keys = sorted(keys)
 
-    inputs = []
+    #This should be restructured to be less memory intensive
+
+    measurements = dict(zip(keys, [[0]*(NUM_METRICS+1)]*len(keys)))    
 
     for i in range(iters):
-        inputs.append(generate_instance(length))
+        inp = generate_instance(length)
+        setup = "from __main__ import get_matching\na_prefs, b_prefs = %s, %s"% inp
 
-    measurements = dict(zip(keys, [[0]*(NUM_METRICS+1)]*len(keys)))
+        for (k,p) in keys:
 
-    
-    for (k,p) in keys:
-        strategy = strategies.index(k)
-        for inp in inputs:
-            a_prefs, b_prefs = inp
+            strategy = strategies.index(k)
             param = p
             if(strategy == 2):
                 param = length*p/100
 
             # This looks clunky, but it repeats the computation some number of times
             #   Unfortunately, that destroys the result, so we run it again
-            setup = "from __main__ import get_matching\na_prefs, b_prefs = %s, %s"% inp
-            times = timeit.repeat("get_matching(a_prefs, b_prefs, %d, %d)"%(strategy, param), setup=setup, repeat=time_iters, number=1)
-            #print("TIME", min(times))
+            time = min(timeit.repeat("get_matching(a_prefs, b_prefs, %d, %d)"%(strategy, param), setup=setup, repeat=time_iters, number=1))
+            print("Iteration %d Strategy %s started"%(i, (k+str(p))))
 
-            set_a, set_b = get_matching(a_prefs, b_prefs, strategy, param)
+            set_a, set_b = get_matching(inp[0], inp[1], strategy, param)
 
-            #append time to the measurements list
-            meas = evaluate_matching(set_a, set_b, a_prefs, b_prefs)
-            meas.append(min(times))
+            # Append time to the measurements list
+            meas = evaluate_matching(set_a, set_b, inp[0], inp[1])
+            meas.append(time)
             temp = measurements[(k,p)]
-            #print(temp)
-            measurements[(k,p)] = [x+y for (x,y) in zip(temp, meas)]
 
+            measurements[(k,p)] = [x+y for (x,y) in zip(temp, meas)]
+            print("Iteration %d Strategy %s finished in %.3f"%(i, (k+str(p)), time))
+        print("Iteration %d finished"%i)
+
+    for (k,p) in keys:            
         # Average and normalize
         temp_meas = measurements[(k,p)]
         measurements[(k,p)] = [round(x/(iters*length), PRECISION) for x in temp_meas[:-1]] + [round(temp_meas[-1]/iters, PRECISION)]
@@ -317,6 +319,7 @@ def smp(length, iters = 1, time_iters = 1):
         else:
             print(k + str(p) + ":")
         print("\t", str(measurements[(k,p)]))
+
 
     return measurements
 
@@ -330,8 +333,8 @@ def main():
     #Run on sizes of up to 2048
     Ns = [2**i for i in range(4, 12)]
     Is = [30 for i in range(4,12)]
-    N = 512
-    iters = 10
+    N = 1024
+    iters = 5
 
     # Iterate this lots of times
     #for (N, iters) in zip(Ns, Is):
