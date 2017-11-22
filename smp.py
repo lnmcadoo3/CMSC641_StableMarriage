@@ -19,7 +19,7 @@ from math import log
 import timeit
 
 #The number of strategies that we have
-NUM_STRATEGIES = 4
+NUM_STRATEGIES = 5
 #Number of metrics that we have
 NUM_METRICS = 6
 
@@ -143,9 +143,16 @@ def process_proposals(proposals, b_prefs, set_a, set_b, strategy, param):
                     set_a[best_a] = b
                     set_b[b] = best_a
 
-
-
-    #Other strategies go here
+    # Accept best in top f(n, param, round number)
+    elif(strategy == 4):
+        for b in set_b.keys():
+            if(set_b[b] == None and proposals[b].keys()):
+                i = max(proposals[b].keys())
+                best_a = min(proposals[b][i], key = lambda x: b_prefs[b].index(x))
+                threshold = desperation_count(len(b_prefs), param, sum([len(proposals[b][x]) for x in range(i) if x in proposals[b].keys()]))
+                if(b_prefs[b].index(best_a) < threshold):
+                    set_a[best_a] = b
+                    set_b[b] = best_a
 
     return set_a, set_b
 
@@ -261,7 +268,8 @@ def smp(length, iters = 1, time_iters = 1):
         "GS",
         "BF",
         "TN",
-        "ID"
+        "ID",
+        "IDR"
     ]
 
     desperate_flags = 4
