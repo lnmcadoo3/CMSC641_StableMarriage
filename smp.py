@@ -17,6 +17,9 @@
 import random
 from math import log
 import timeit
+import gc
+import sys
+import statistics
 
 #The number of strategies that we have
 NUM_STRATEGIES = 5
@@ -24,8 +27,7 @@ NUM_STRATEGIES = 5
 NUM_METRICS = 6
 
 
-
-PRECISION = 4
+PRECISION = 6
 
 # This function generates a random stable marriage problem with n 
 #   members of each set
@@ -76,8 +78,6 @@ def get_matching(a_prefs, b_prefs, strategy, param):
 
         #Increase round number
         i += 1
-
-        #print("ROUND", i)
 
         #Recreate the free array
         free_a = [a for a in set_a.keys() if ((set_a[a] == None) and proposed[a] < length)]
@@ -163,10 +163,10 @@ def desperation_count(n, param, num_props):
     #print(n, param, num_props)
     #Linear function
     if(param == 0):
-        return n/(n-1)*num_props + 1
+        return (n-1)/n*num_props + 1
     #Quadratic function
     elif(param == 1):
-        return 1/n*(num_props**2) + 1
+        return (n-1)/(n*n)*(num_props**2) + 1
     #Exponential function
     elif(param == 2):
         return n**(num_props/n)
@@ -274,7 +274,7 @@ def smp(length, iters = 1, time_iters = 1):
 
     desperate_flags = 4
     #Percentiles for Top N strategies (strictly it's Top N %)
-    percentiles = [1, 5, 10, 20, 25, 33, 50, 75]
+    percentiles = [25, 50, 75]#[1, 5, 10, 20, 25, 33, 50, 75]
 
     #This looks bad, but is hopefully dynamic enough to not randomly break
     #Essentially we want to store measurements of a run, which is identified
@@ -289,11 +289,18 @@ def smp(length, iters = 1, time_iters = 1):
 
     #This should be restructured to be less memory intensive
 
-    measurements = dict(zip(keys, [[0]*(NUM_METRICS+1)]*len(keys)))    
+    r = random.Random(12345)
+    seeds = [r.randrange(10000) for i in range(iters)]
+    print(seeds)
+
+    measurements = dict(zip(keys, [[] for i in range(len(keys))]))
+    ret = {}
 
     for i in range(iters):
-        inp = generate_instance(length)
-        setup = "from __main__ import get_matching\na_prefs, b_prefs = %s, %s"% inp
+        setup = "from __main__ import get_matching\nfrom __main__ import generate_instance\na_prefs, b_prefs = generate_instance(%d, %d)"% (length, seeds[i])
+        #print("Done setup")
+
+        #sys.stdout.flush()
 
         for (k,p) in keys:
 
@@ -304,33 +311,59 @@ def smp(length, iters = 1, time_iters = 1):
 
             # This looks clunky, but it repeats the computation some number of times
             #   Unfortunately, that destroys the result, so we run it again
+            #print("Starting timer")
             time = min(timeit.repeat("get_matching(a_prefs, b_prefs, %d, %d)"%(strategy, param), setup=setup, repeat=time_iters, number=1))
-            #print("Iteration %d Strategy %s started"%(i, (k+str(p))))
-
+            print("Iteration %d Strategy %s started"%(i, (k+str(p))))
+        
+            #For large inputs, we don't want to have this made when we do the timing
+            inp = generate_instance(length, seeds[i])
             set_a, set_b = get_matching(inp[0], inp[1], strategy, param)
 
             # Append time to the measurements list
+            #print("Iteration %d Strategy %s is evaluating match"%(i, k+str(p)))
             meas = evaluate_matching(set_a, set_b, inp[0], inp[1])
             meas.append(time)
-            temp = measurements[(k,p)]
+            #temp = measurements[(k,p)]
 
-            measurements[(k,p)] = [x+y for (x,y) in zip(temp, meas)]
-            #print("Iteration %d Strategy %s finished in %.3f"%(i, (k+str(p)), time))
+            #measurements[(k,p)] = [x+y for (x,y) in zip(temp, meas)]
+            measurements[(k,p)].append(meas)
+            print("Iteration %d Strategy %s finished in %.3f"%(i, (k+str(p)), time))
+            #print(meas)
+            #gc.collect()
+            #sys.stdout.flush()
+
         print("Iteration %d finished"%i)
+
+    #print(measurements)
 
     for (k,p) in keys:            
         # Average and normalize
         temp_meas = measurements[(k,p)]
-        measurements[(k,p)] = [round(x/(iters*length), PRECISION) for x in temp_meas[:-1]] + [round(temp_meas[-1]/iters, PRECISION)]
+        #Normalize data points before we get std dev and avg
+        for i in range(len(temp_meas)):
+            for j in range(len(temp_meas[i])-1):
+                #print("BEFORE", temp_meas[i][j])
+                temp_meas[i][j] = temp_meas[i][j]/length
+                #print(temp_meas[i][j])
+
+        samples = [[temp_meas[i][j] for i in range(len(temp_meas))] for j in range(len(temp_meas[0]))]
+
+        #print(samples)
+
+        std_devs = [round(statistics.stdev(samples[i]), PRECISION) for i in range(len(samples))]
+        avgs = [round(statistics.mean(samples[i]), PRECISION) for i in range(len(samples))]
+        #avgs = [round(x/length, PRECISION) for x in avgs[:-1]] + [avgs[-1]]
+        ret[(k,p)] = list(zip(avgs, std_devs))
+        #measurements[(k,p)] = [round(x/(iters*length), PRECISION)  for x in temp_meas[:-1]] + [round(temp_meas[-1]/iters, PRECISION)]
 
         if(p == 0):
             print(k + ":")
         else:
             print(k + str(p) + ":")
-        print("\t", str(measurements[(k,p)]))
+        print("\t", str(ret[(k,p)]))
 
 
-    return measurements
+    return ret
 
 
 
@@ -339,26 +372,32 @@ def main():
     data = {}
     first_time = True
 
-    #Run on sizes of up to 2048
-    Ns = [2**i for i in range(4, 12)]
-    Is = [30 for i in range(4,12)]
-    N = 256
-    iters = 5
+    #Run on sizes from 128 up to 2048
+    Ns = [2**i for i in range(7, 12)]
+    #6 worked for 4096. Double for each smaller size
+    Is = [6*(2**(i+1)) for i in range(len(Ns))]
+    Is.reverse()
 
+    print(list(zip(Ns, Is)))
+    
     # Iterate this lots of times
-    #for (N, iters) in zip(Ns, Is):
-    print(N, iters)
-    vals = smp(N, iters)
-    for k in vals:
-        if(not (k in data)):
-            data[k] = {}
-        data[k][N] = vals[k]
+    for (N, iters) in zip(Ns, Is):
+        print(N, iters)
+        vals = smp(N, iters)
+        for k in vals:
+            if(not (k in data)):
+                data[k] = {}
+            data[k][N] = vals[k]
 
-    keys = sorted(data.keys())
+        keys = sorted(data.keys())
 
-    for k in keys:
-        for n in data[k]:
-            print(n, k, "\t", data[k][n])
+        filename = str(N) + ".dat"
 
+        with open(filename, 'w') as f:
+            for k in keys:
+                print(N, k, "\t", data[k][N])
+                f.write(str(k).ljust(15) + str(data[k][N]) + "\n")
+
+    
 if  __name__ == "__main__":
     main()
